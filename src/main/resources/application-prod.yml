@@ -1,0 +1,29 @@
+# Production profile. Activate with SPRING_PROFILES_ACTIVE=prod.
+# Only production-only overrides live here; everything else is inherited from application.yml.
+# No secrets: every credential still arrives through environment variables.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      # Never publish component details (database, disk) to anonymous callers.
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    com.example.githubsearch: INFO
+    # SQL and parameter logging belong in local debugging, not in production logs.
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN

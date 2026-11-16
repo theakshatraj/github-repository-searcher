@@ -1,0 +1,28 @@
+# Build output
+target/
+!.mvn/wrapper/maven-wrapper.properties
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

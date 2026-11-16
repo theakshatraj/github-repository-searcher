@@ -1,0 +1,48 @@
+# Base configuration shared by every environment.
+# Secrets never live here: they are supplied through environment variables with
+# non-secret local defaults so a fresh clone can run against local PostgreSQL.
+spring:
+  application:
+    name: github-repository-searcher
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/github_searcher}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the mapping matches it.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          # Bind/read timestamps as UTC regardless of the machine's or JVM's default zone.
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+server:
+  port: ${PORT:8080}
+
+# Only the health endpoint is public: env, beans, heapdump and friends would leak
+# configuration or internals to anyone who can reach the API.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+# Springdoc: Swagger UI at /swagger-ui.html, raw OpenAPI JSON at /v3/api-docs.
+# Both values are springdoc defaults; they are stated explicitly so the public URLs are greppable.
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# Reserved for the GitHub integration built in Phase 2.
+github:
+  token: ${GITHUB_TOKEN:}
+  base-url: https://api.github.com
+  connect-timeout: 5s
+  read-timeout: 10s
