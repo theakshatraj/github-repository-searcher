@@ -2,6 +2,7 @@ package com.example.githubsearch;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * Entry point of the GitHub Repository Searcher API.
@@ -11,10 +12,15 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Jackson, Hibernate and Flyway) and {@code @ComponentScan} (it scans this package and below for
  * {@code @Component}, {@code @Service}, {@code @RestController} and friends).
  *
+ * <p>{@code @ConfigurationPropertiesScan} finds every {@code @ConfigurationProperties} class in this
+ * package and registers it as a bean, which is how {@code GithubProperties} becomes injectable without a
+ * {@code @Component} on a configuration class.
+ *
  * <p>The package is {@code com.example.githubsearch}, so every future class must live in a sub-package
  * of it to be discovered.
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class GithubRepositorySearcherApplication {
 
     public static void main(String[] args) {

@@ -1,0 +1,21 @@
+{
+  "total_count": 1,
+  "incomplete_results": false,
+  "items": [
+    {
+      "id": 987654,
+      "name": "mystery",
+      "description": null,
+      "owner": {
+        "login": "nobody"
+      },
+      "language": null,
+      "stargazers_count": 0,
+      "forks_count": 0,
+      "updated_at": null,
+      "html_url": "https://github.com/nobody/mystery",
+      "open_issues_count": null,
+      "created_at": null
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "total_count": 2,
+  "incomplete_results": false,
+  "items": [
+    {
+      "id": 6296790,
+      "node_id": "MDEwOlJlcG9zaXRvcnk2Mjk2Nzkw",
+      "name": "spring-boot",
+      "full_name": "spring-projects/spring-boot",
+      "private": false,
+      "description": "Spring Boot helps you build applications",
+      "owner": {
+        "login": "spring-projects",
+        "id": 317776,
+        "type": "Organization",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/spring-projects/spring-boot",
+      "language": "Java",
+      "stargazers_count": 75000,
+      "watchers_count": 75000,
+      "forks_count": 41000,
+      "open_issues_count": 12,
+      "created_at": "2012-10-19T04:00:00Z",
+      "updated_at": "2026-11-10T09:12:00Z",
+      "pushed_at": "2026-11-11T08:00:00Z",
+      "default_branch": "main",
+      "score": 1.0
+    },
+    {
+      "id": 1234567,
+      "node_id": "R_kgDOABLNFw",
+      "name": "tiny-notes",
+      "full_name": "alice/tiny-notes",
+      "private": false,
+      "description": "A tiny notes app",
+      "owner": {
+        "login": "alice",
+        "id": 9911,
+        "type": "User",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/alice/tiny-notes",
+      "language": "JavaScript",
+      "stargazers_count": 3,
+      "watchers_count": 3,
+      "forks_count": 0,
+      "open_issues_count": 0,
+      "created_at": "2023-01-15T10:00:00Z",
+      "updated_at": "2025-02-01T00:00:00Z",
+      "pushed_at": "2025-02-01T00:00:00Z",
+      "default_branch": "main",
+      "score": 0.5
+    }
+  ]
+}

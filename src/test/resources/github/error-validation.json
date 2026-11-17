@@ -1,0 +1,12 @@
+{
+  "message": "Validation Failed",
+  "errors": [
+    {
+      "resource": "Search",
+      "field": "q",
+      "code": "invalid"
+    }
+  ],
+  "documentation_url": "https://docs.github.com/rest/search/search#search-repositories",
+  "status": "422"
+}
