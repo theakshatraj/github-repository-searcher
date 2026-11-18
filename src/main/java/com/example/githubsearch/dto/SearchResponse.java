@@ -1,5 +1,7 @@
 package com.example.githubsearch.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
 
 /**
@@ -14,5 +16,11 @@ import java.util.List;
  * @param message      one of the two fixed success messages
  * @param repositories the fetched repositories in GitHub's order; empty when nothing matched
  */
-public record SearchResponse(String message, List<RepositoryResponse> repositories) {
+public record SearchResponse(
+        @Schema(description = "Fixed outcome message; the empty-result variant says no repositories matched.",
+                example = "Repositories fetched and saved successfully")
+        String message,
+
+        @Schema(description = "Fetched repositories in GitHub's order; empty when nothing matched.")
+        List<RepositoryResponse> repositories) {
 }

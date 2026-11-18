@@ -1,5 +1,6 @@
 package com.example.githubsearch.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -40,20 +41,29 @@ import jakarta.validation.constraints.Size;
  * @param perPage page size, default 30, between 1 and 100
  */
 public record SearchRequest(
+        @Schema(description = "Words matched against repository names.",
+                example = "spring boot", maxLength = 256)
         @NotBlank(message = "query must not be blank")
         @Size(max = 256, message = "query must be at most 256 characters")
         String query,
 
+        @Schema(description = "Optional GitHub language filter; C++, C# and spaces are allowed.",
+                example = "Java", maxLength = 50)
         @Size(max = 50, message = "language must be at most 50 characters")
         @Pattern(regexp = "^[A-Za-z0-9 +#.\\-]+$",
                 message = "Language may only contain letters, digits, spaces and the characters + # . -")
         String language,
 
+        @Schema(description = "Optional GitHub sort field; omit it to keep GitHub's best-match order.",
+                example = "stars", allowableValues = {"stars", "forks", "updated"})
         String sort,
 
+        @Schema(description = "One-based page number.", example = "1", minimum = "1", defaultValue = "1")
         @Min(value = 1, message = "page must be greater than or equal to 1")
         Integer page,
 
+        @Schema(description = "Page size. page * perPage must not exceed GitHub's 1000-result cap.",
+                example = "30", minimum = "1", maximum = "100", defaultValue = "30")
         @Min(value = 1, message = "perPage must be greater than or equal to 1")
         @Max(value = 100, message = "perPage must be less than or equal to 100")
         Integer perPage) {
@@ -80,6 +90,7 @@ public record SearchRequest(
      *
      * @return {@code true} when the requested window is inside GitHub's first 1000 results
      */
+    @Schema(hidden = true)
     @AssertTrue(message = "page * perPage must not exceed 1000 because GitHub returns at most 1000 search results")
     public boolean isWithinGithubResultCap() {
         return (long) page * perPage <= MAX_RESULTS;

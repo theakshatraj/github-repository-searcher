@@ -354,6 +354,23 @@ class GithubSearchClientTest {
     }
 
     @Test
+    void treatsANegativeRetryAfterAsUnknownInsteadOfReturningANonsenseDelay() {
+        server.expect(requestTo(SPRING_SEARCH_URL))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .header(HttpHeaders.RETRY_AFTER, "-5")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(json("error-rate-limit.json")));
+
+        assertThatThrownBy(() -> client().search("spring", null, null, 1, 30))
+                .isInstanceOfSatisfying(GithubRateLimitException.class, exception -> {
+                    assertThat(exception.retryAfterSeconds()).isNull();
+                    assertThat(exception.getMessage()).isEqualTo("GitHub API rate limit exceeded");
+                });
+
+        server.verify();
+    }
+
+    @Test
     void fallsBackToTheRateLimitResetWhenRetryAfterIsAnHttpDateRatherThanSeconds() {
         long resetAtEpochSeconds = Instant.now().plusSeconds(30).getEpochSecond();
         server.expect(requestTo(SPRING_SEARCH_URL))
@@ -438,6 +455,21 @@ class GithubSearchClientTest {
         assertThatThrownBy(() -> client().search("spring", null, null, 1, 30))
                 .isInstanceOfSatisfying(GithubApiException.class, exception ->
                         assertThat(exception.status()).isEqualTo(HttpStatus.BAD_GATEWAY));
+
+        server.verify();
+    }
+
+    @Test
+    void mapsASuccessfulResponseWithNoBodyToBadGateway() {
+        // 204 is a 2xx, so RestClient does not throw, but a search answer without a body is unusable.
+        server.expect(requestTo(SPRING_SEARCH_URL))
+                .andRespond(withStatus(HttpStatus.NO_CONTENT));
+
+        assertThatThrownBy(() -> client().search("spring", null, null, 1, 30))
+                .isInstanceOfSatisfying(GithubApiException.class, exception -> {
+                    assertThat(exception.status()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getMessage()).isEqualTo("GitHub API returned an unreadable response");
+                });
 
         server.verify();
     }

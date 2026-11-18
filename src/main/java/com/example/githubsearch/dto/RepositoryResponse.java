@@ -1,5 +1,7 @@
 package com.example.githubsearch.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.time.Instant;
 
 /**
@@ -31,15 +33,39 @@ import java.time.Instant;
  * @param createdAt   GitHub's {@code created_at}; may be null
  */
 public record RepositoryResponse(
+        @Schema(description = "GitHub's repository id, also the primary key we store it under.",
+                example = "123456")
         Long id,
+
+        @Schema(description = "Repository name.", example = "spring-boot-example")
         String name,
+
+        @Schema(description = "Repository summary; null when GitHub has none.",
+                example = "A sample Spring Boot application")
         String description,
+
+        @Schema(description = "Owner login, not the display name.", example = "user123")
         String owner,
+
+        @Schema(description = "Primary language; null when GitHub reports none.", example = "Java")
         String language,
+
+        @Schema(description = "Stargazers count.", example = "4200")
         Integer stars,
+
+        @Schema(description = "Forks count.", example = "310")
         Integer forks,
+
+        @Schema(description = "GitHub's updated_at timestamp in UTC.", example = "2026-11-10T09:12:00Z")
         Instant lastUpdated,
+
+        @Schema(description = "Repository page on GitHub.",
+                example = "https://github.com/user123/spring-boot-example")
         String htmlUrl,
+
+        @Schema(description = "Open issue count.", example = "12")
         Integer openIssues,
+
+        @Schema(description = "GitHub's created_at timestamp in UTC.", example = "2023-01-15T08:30:00Z")
         Instant createdAt) {
 }

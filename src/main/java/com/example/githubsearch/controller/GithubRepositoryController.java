@@ -1,5 +1,6 @@
 package com.example.githubsearch.controller;
 
+import com.example.githubsearch.dto.ErrorResponse;
 import com.example.githubsearch.dto.RepositoryPageResponse;
 import com.example.githubsearch.dto.RepositoryResponse;
 import com.example.githubsearch.dto.SearchRequest;
@@ -7,6 +8,14 @@ import com.example.githubsearch.dto.SearchResponse;
 import com.example.githubsearch.model.SortField;
 import com.example.githubsearch.service.GithubSearchService;
 import com.example.githubsearch.service.StoredRepositoryService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -50,10 +59,17 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/github")
+@Tag(name = "GitHub repositories",
+        description = "Search GitHub repositories, save them, and query the stored data without calling GitHub again.")
 public class GithubRepositoryController {
 
     private static final String DEFAULT_SORT = "stars";
     private static final String DEFAULT_ORDER = "desc";
+    private static final String DEFAULT_PAGE = "0";
+    private static final String DEFAULT_PAGE_SIZE = "100";
+    private static final int MIN_PAGE = 0;
+    private static final int MIN_PAGE_SIZE = 1;
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final GithubSearchService searchService;
     private final StoredRepositoryService storedRepositoryService;
@@ -74,6 +90,45 @@ public class GithubRepositoryController {
      * @param request validated search criteria
      * @return 200 with the saved repositories, or the same status with an empty list when nothing matched
      */
+    @Operation(
+            summary = "Search GitHub and save the results",
+            description = """
+                    Calls GitHub's repository search API once, upserts every result by GitHub id, and returns \
+                    the saved repositories in GitHub's order. Each call spends GitHub search quota. A search \
+                    with no matches is still 200 and writes nothing.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200",
+                    description = "Search completed, including zero matches.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = SearchResponse.class))),
+            @ApiResponse(responseCode = "400",
+                    description = "Invalid request body, invalid sort, or GitHub rejected the query.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "429",
+                    description = "GitHub rate limit reached.",
+                    headers = @Header(name = "Retry-After",
+                            description = "Seconds to wait before retrying, when GitHub provided a delay.",
+                            schema = @Schema(type = "integer", format = "int64")),
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "502",
+                    description = "GitHub is unavailable or returned an unreadable response.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503",
+                    description = "PostgreSQL is temporarily unavailable.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "504",
+                    description = "GitHub did not respond before the configured timeout.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "500",
+                    description = "Unexpected server error. Details are logged, not returned.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
+    })
     @PostMapping("/search")
     public SearchResponse search(@Valid @RequestBody SearchRequest request) {
         return searchService.search(request);
@@ -91,30 +146,72 @@ public class GithubRepositoryController {
      * @return 200 with one page of stored repositories; an empty page is still 200
      * @throws com.example.githubsearch.exception.InvalidRequestException when {@code sort} is not whitelisted
      */
+    @Operation(
+            summary = "List stored repositories",
+            description = """
+                    Reads only from PostgreSQL and never calls GitHub. Filters combine with AND. A valid \
+                    query with no matching rows returns 200 and an empty array.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200",
+                    description = "One page of stored repositories. An empty page is still 200.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = RepositoryPageResponse.class))),
+            @ApiResponse(responseCode = "400",
+                    description = "Invalid filter, sort, order, page or size parameter.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503",
+                    description = "PostgreSQL is temporarily unavailable.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "500",
+                    description = "Unexpected server error. Details are logged, not returned.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
+    })
     @GetMapping("/repositories")
     public RepositoryPageResponse findRepositories(
+            @Parameter(description = "Case-insensitive exact language filter.",
+                    example = "Java",
+                    schema = @Schema(maxLength = 50))
             @RequestParam(required = false)
             @Size(max = 50, message = "language must be at most 50 characters")
             String language,
 
+            @Parameter(description = "Inclusive minimum number of stars.",
+                    example = "100",
+                    schema = @Schema(type = "integer", minimum = "0"))
             @RequestParam(required = false)
             @Min(value = 0, message = "minStars must be greater than or equal to 0")
             Integer minStars,
 
+            @Parameter(description = "Sort field. Unknown values are rejected with 400.",
+                    example = "stars",
+                    schema = @Schema(allowableValues = {"stars", "forks", "updated"},
+                            defaultValue = "stars"))
             @RequestParam(defaultValue = DEFAULT_SORT)
             String sort,
 
+            @Parameter(description = "Sort direction.",
+                    example = "desc",
+                    schema = @Schema(allowableValues = {"asc", "desc"}, defaultValue = "desc"))
             @RequestParam(defaultValue = DEFAULT_ORDER)
             @Pattern(regexp = "(?i)asc|desc", message = "order must be 'asc' or 'desc'")
             String order,
 
-            @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "page must be greater than or equal to 0")
+            @Parameter(description = "Zero-based page number.",
+                    example = "0",
+                    schema = @Schema(type = "integer", minimum = "0", defaultValue = "0"))
+            @RequestParam(defaultValue = DEFAULT_PAGE)
+            @Min(value = MIN_PAGE, message = "page must be greater than or equal to " + MIN_PAGE)
             Integer page,
 
-            @RequestParam(defaultValue = "100")
-            @Min(value = 1, message = "size must be greater than or equal to 1")
-            @Max(value = 100, message = "size must be less than or equal to 100")
+            @Parameter(description = "Page size.",
+                    example = "100",
+                    schema = @Schema(type = "integer", minimum = "1", maximum = "100", defaultValue = "100"))
+            @RequestParam(defaultValue = DEFAULT_PAGE_SIZE)
+            @Min(value = MIN_PAGE_SIZE, message = "size must be greater than or equal to " + MIN_PAGE_SIZE)
+            @Max(value = MAX_PAGE_SIZE, message = "size must be less than or equal to " + MAX_PAGE_SIZE)
             Integer size) {
 
         return storedRepositoryService.find(
@@ -133,8 +230,35 @@ public class GithubRepositoryController {
      * @return 200 with the repository
      * @throws com.example.githubsearch.exception.RepositoryNotFoundException when the id is not stored
      */
+    @Operation(
+            summary = "Get one stored repository",
+            description = "Returns one repository by GitHub's numeric id. Reads only from PostgreSQL.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200",
+                    description = "The stored repository.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = RepositoryResponse.class))),
+            @ApiResponse(responseCode = "400",
+                    description = "The id is not a number.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404",
+                    description = "No repository with that GitHub id is stored.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503",
+                    description = "PostgreSQL is temporarily unavailable.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "500",
+                    description = "Unexpected server error. Details are logged, not returned.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
+    })
     @GetMapping("/repositories/{id}")
-    public RepositoryResponse findById(@PathVariable Long id) {
+    public RepositoryResponse findById(
+            @Parameter(description = "GitHub's numeric repository id.", example = "6296790", required = true)
+            @PathVariable Long id) {
         return storedRepositoryService.findById(id);
     }
 }

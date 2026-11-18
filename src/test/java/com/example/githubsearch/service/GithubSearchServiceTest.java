@@ -133,6 +133,24 @@ class GithubSearchServiceTest {
         assertThat(saved.getValue()).extracting(GithubRepository::getId).containsExactly(1L);
     }
 
+    @Test
+    void doesNotClaimASaveWhenEveryGitHubItemWasUnusable() {
+        // GitHub answered with items, but none has the id, name and owner login the table requires.
+        // Nothing can be written, so "saved successfully" would be a lie and opening a transaction to
+        // save zero rows would be pointless.
+        GithubRepositoryItem noOwner = new GithubRepositoryItem(
+                2L, "no-owner", null, null, "Java", 1, 0, null, null, 0, null);
+        GithubRepositoryItem noName = new GithubRepositoryItem(
+                3L, null, null, new GithubOwner("someone"), "Java", 1, 0, null, null, 0, null);
+        when(client.search("spring", null, null, 1, 30)).thenReturn(responseOf(noOwner, noName));
+
+        SearchResponse result = service.search(new SearchRequest("spring", null, null, 1, 30));
+
+        assertThat(result.message()).isEqualTo(EMPTY_MESSAGE);
+        assertThat(result.repositories()).isEmpty();
+        verifyNoInteractions(storage);
+    }
+
     // ---------------------------------------------------------------------
     // Request -> client mapping
     // ---------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package com.example.githubsearch.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,11 +30,24 @@ import java.util.List;
  * @param details   field-level validation problems; omitted from JSON when {@code null} or empty
  */
 public record ErrorResponse(
+        @Schema(description = "When the error was produced, in UTC.", example = "2026-11-16T10:30:00Z")
         Instant timestamp,
+
+        @Schema(description = "Numeric HTTP status.", example = "400")
         int status,
+
+        @Schema(description = "HTTP reason phrase.", example = "Bad Request")
         String error,
+
+        @Schema(description = "Human-readable explanation that is safe to show to the caller.",
+                example = "Validation failed for one or more fields")
         String message,
+
+        @Schema(description = "Request path without the query string.",
+                example = "/api/github/repositories")
         String path,
+
+        @Schema(description = "Field-level validation problems; omitted from JSON when null or empty.")
         @JsonInclude(JsonInclude.Include.NON_EMPTY) List<FieldErrorDetail> details) {
 
     /**
@@ -45,6 +59,11 @@ public record ErrorResponse(
      * @param field   name of the offending request field or query parameter
      * @param message the validation message for that field
      */
-    public record FieldErrorDetail(String field, String message) {
+    public record FieldErrorDetail(
+            @Schema(description = "Offending request field or query parameter.", example = "query")
+            String field,
+
+            @Schema(description = "Validation message for that field.", example = "query must not be blank")
+            String message) {
     }
 }

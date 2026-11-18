@@ -26,10 +26,12 @@ import java.util.List;
  *       empty list <b>without touching the database</b>. An empty answer is a successful search: the call
  *       worked and the world simply has no match. Opening a transaction to write zero rows would be wasted
  *       work and would blur the distinction between "nothing matched" and "nothing happened".</li>
- *   <li>Otherwise the mapper builds entities (skipping unusable items, defaulting counts), the storage
- *       service upserts the batch in one transaction, and the same entities are mapped back to public
- *       responses <b>in GitHub's order</b>. Returning the mapped entities rather than re-reading the
- *       database avoids a second query and guarantees the caller sees exactly what was saved.</li>
+ *   <li>Otherwise the mapper builds entities (skipping unusable items, defaulting counts). If every item was
+ *       unusable, the method again returns the "no repositories" answer without touching the database:
+ *       nothing was saved, so it must not say otherwise. Otherwise the storage service upserts the batch in
+ *       one transaction, and the same entities are mapped back to public responses <b>in GitHub's order</b>.
+ *       Returning the mapped entities rather than re-reading the database avoids a second query and
+ *       guarantees the caller sees exactly what was saved.</li>
  * </ol>
  *
  * <p><b>Why this class is NOT {@code @Transactional}.</b> Transaction boundaries belong around the
@@ -81,6 +83,13 @@ public class GithubSearchService {
         }
 
         List<GithubRepository> entities = mapper.toEntities(githubResponse);
+        if (entities.isEmpty()) {
+            // GitHub answered with items, but the mapper rejected every one of them (missing id, name or
+            // owner login). Nothing can be stored, so this is an empty result, not a successful save. The
+            // mapper already logged one warning per skipped item for diagnosis.
+            return new SearchResponse(EMPTY_MESSAGE, List.of());
+        }
+
         storage.upsertAll(entities);
 
         return new SearchResponse(SAVED_MESSAGE, mapper.toResponses(entities));

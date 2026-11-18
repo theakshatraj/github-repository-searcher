@@ -1,0 +1,252 @@
+{
+  "info": {
+    "_postman_id": "2a9f0b40-6c1e-4a3b-9f6e-1b2c3d4e5f60",
+    "name": "GitHub Repository Searcher",
+    "description": "Requests for the GitHub Repository Searcher API. Set the `baseUrl` collection variable to the running instance (default http://localhost:8080). No token or password is stored in this collection; the API itself is open and needs no authentication. Run \"1. POST search\" before \"5. GET by id\" and replace `repositoryId` with an id returned by the search.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. POST search",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+              "pm.test('response has the success message', function () {",
+              "  pm.expect(pm.response.json().message).to.eql('Repositories fetched and saved successfully');",
+              "});",
+              "const body = pm.response.json();",
+              "if (body.repositories && body.repositories.length > 0) {",
+              "  pm.collectionVariables.set('repositoryId', String(body.repositories[0].id));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"spring boot\",\n  \"language\": \"Java\",\n  \"sort\": \"stars\",\n  \"page\": 1,\n  \"perPage\": 30\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/github/search",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "github",
+            "search"
+          ]
+        },
+        "description": "Calls GitHub once, upserts the returned repositories by GitHub id, and returns the saved rows. Each call spends GitHub search quota."
+      }
+    },
+    {
+      "name": "2. POST the same search again (upsert)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK on repeat', function () { pm.response.to.have.status(200); });",
+              "pm.test('message is still the success message', function () {",
+              "  pm.expect(pm.response.json().message).to.eql('Repositories fetched and saved successfully');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"spring boot\",\n  \"language\": \"Java\",\n  \"sort\": \"stars\",\n  \"page\": 1,\n  \"perPage\": 30\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/github/search",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "github",
+            "search"
+          ]
+        },
+        "description": "Identical to request 1 on purpose. The second call must still return 200: existing rows are updated through PostgreSQL `INSERT ... ON CONFLICT (id) DO UPDATE`, not rejected as duplicates."
+      }
+    },
+    {
+      "name": "3. GET stored repositories (filtered)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+              "pm.test('body has pagination metadata', function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('repositories');",
+              "  pm.expect(body).to.have.property('page');",
+              "  pm.expect(body).to.have.property('size');",
+              "  pm.expect(body).to.have.property('totalElements');",
+              "  pm.expect(body).to.have.property('totalPages');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/github/repositories?language=Java&minStars=100&sort=stars",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "github",
+            "repositories"
+          ],
+          "query": [
+            {
+              "key": "language",
+              "value": "Java",
+              "description": "Case-insensitive exact language filter."
+            },
+            {
+              "key": "minStars",
+              "value": "100",
+              "description": "Inclusive minimum number of stars."
+            },
+            {
+              "key": "sort",
+              "value": "stars",
+              "description": "One of stars, forks, updated. If omitted, stars is used."
+            }
+          ]
+        },
+        "description": "Reads only from PostgreSQL; it never calls GitHub. Valid filters with no matches return 200 and an empty repositories array."
+      }
+    },
+    {
+      "name": "4. GET with an invalid sort (expect 400)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('400 Bad Request', function () { pm.response.to.have.status(400); });",
+              "pm.test('standard error body', function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.all.keys('timestamp', 'status', 'error', 'message', 'path');",
+              "  pm.expect(body.status).to.eql(400);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/github/repositories?sort=rating",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "github",
+            "repositories"
+          ],
+          "query": [
+            {
+              "key": "sort",
+              "value": "rating",
+              "description": "Intentionally invalid: only stars, forks and updated are accepted."
+            }
+          ]
+        },
+        "description": "Negative case: an unknown sort field is rejected by the whitelist with 400 and the standard error body."
+      }
+    },
+    {
+      "name": "5. GET one stored repository by id",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK or 404 if the id is not stored', function () {",
+              "  pm.expect([200, 404]).to.include(pm.response.code);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/github/repositories/{{repositoryId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "github",
+            "repositories",
+            "{{repositoryId}}"
+          ]
+        },
+        "description": "Returns one stored repository by GitHub's numeric id. Request 1 sets `repositoryId` automatically from the first returned row; a non-numeric id returns 400 and an id that is not stored returns 404."
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "Origin of the running API, without a trailing slash."
+    },
+    {
+      "key": "repositoryId",
+      "value": "6296790",
+      "type": "string",
+      "description": "GitHub repository id used by request 5. Overwritten automatically after request 1 returns at least one row."
+    }
+  ]
+}

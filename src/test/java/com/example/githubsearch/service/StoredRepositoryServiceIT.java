@@ -1,7 +1,10 @@
 package com.example.githubsearch.service;
 
+import com.example.githubsearch.dto.RepositoryPageResponse;
+import com.example.githubsearch.dto.RepositoryResponse;
 import com.example.githubsearch.entity.GithubRepository;
 import com.example.githubsearch.mapper.GithubRepositoryMapper;
+import com.example.githubsearch.model.SortField;
 import com.example.githubsearch.support.PostgresTestConfig;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,6 +103,80 @@ class StoredRepositoryServiceIT {
 
         assertThat(countRows()).isZero();
         assertThat(find(2001L)).isNull();
+    }
+
+    // ---------------------------------------------------------------------
+    // find(...): the production sort and filter path against PostgreSQL
+    // ---------------------------------------------------------------------
+
+    @Test
+    void findSortsByUpdatedInBothDirectionsWithNullsLastAndIdAsTheTieBreaker() {
+        persist(
+                new GithubRepository(10L, "newest", null, "alice", "Java", 1, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(11L, "oldest-timestamp", null, "bob", "Java", 1, 1,
+                        Instant.parse("2025-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(12L, "middle", null, "carol", "Java", 1, 1,
+                        Instant.parse("2025-06-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(13L, "never-updated", null, "dave", "Java", 1, 1,
+                        null, null, 0, null),
+                // Same timestamp as id 10: the ascending id tie-breaker must decide the order.
+                new GithubRepository(14L, "newest-tie", null, "erin", "Java", 1, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null));
+
+        assertThat(idsFrom(service.find(null, null, SortField.UPDATED, Sort.Direction.DESC, 0, 100)))
+                .containsExactly(10L, 14L, 12L, 11L, 13L);
+        assertThat(idsFrom(service.find(null, null, SortField.UPDATED, Sort.Direction.ASC, 0, 100)))
+                .containsExactly(11L, 12L, 10L, 14L, 13L);
+    }
+
+    @Test
+    void findCombinesTheLanguageAndMinStarsFiltersCaseInsensitively() {
+        persist(
+                new GithubRepository(20L, "java-at-the-boundary", null, "alice", "Java", 50, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(21L, "lowercase-java-above", null, "bob", "java", 100, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(22L, "kotlin-at-the-boundary", null, "carol", "Kotlin", 50, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(23L, "java-below", null, "dave", "Java", 49, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(24L, "no-language", null, "erin", null, 100, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null));
+
+        RepositoryPageResponse page =
+                service.find("JAVA", 50, SortField.STARS, Sort.Direction.DESC, 0, 100);
+
+        assertThat(idsFrom(page)).containsExactly(21L, 20L);
+        assertThat(page.totalElements()).isEqualTo(2);
+    }
+
+    @Test
+    void findDefaultsToStarsDescendingWhenNoSortOrDirectionIsGiven() {
+        persist(
+                new GithubRepository(30L, "two-stars", null, "alice", "Java", 2, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(31L, "three-stars", null, "bob", "Java", 3, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null),
+                new GithubRepository(32L, "one-star", null, "carol", "Java", 1, 1,
+                        Instant.parse("2026-01-01T00:00:00Z"), null, 0, null));
+
+        assertThat(idsFrom(service.find(null, null, null, null, 0, 2)))
+                .containsExactly(31L, 30L);
+    }
+
+    private void persist(GithubRepository... repositories) {
+        transactionTemplate.executeWithoutResult(status -> {
+            for (GithubRepository repository : repositories) {
+                entityManager.persist(repository);
+            }
+        });
+    }
+
+    private static List<Long> idsFrom(RepositoryPageResponse page) {
+        return page.repositories().stream()
+                .map(RepositoryResponse::id)
+                .toList();
     }
 
     private static GithubRepository entity(long id, String name, String description, int stars) {

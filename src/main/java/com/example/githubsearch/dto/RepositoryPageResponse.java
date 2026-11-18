@@ -1,5 +1,7 @@
 package com.example.githubsearch.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
 
 /**
@@ -20,9 +22,18 @@ import java.util.List;
  * @param totalPages    total number of pages at this size
  */
 public record RepositoryPageResponse(
+        @Schema(description = "This page's rows, already mapped to the public shape.")
         List<RepositoryResponse> repositories,
+
+        @Schema(description = "Zero-based page number.", example = "0")
         int page,
+
+        @Schema(description = "Page size used for this response.", example = "100")
         int size,
+
+        @Schema(description = "Total rows matching the filters across every page.", example = "5")
         long totalElements,
+
+        @Schema(description = "Total number of pages at this size.", example = "1")
         int totalPages) {
 }
