@@ -27,3 +27,10 @@ Thumbs.db
 *.log
 docs
 README.md
+
+# Neon CLI scaffolding is for local provisioning, not for the Java image.
+node_modules
+.neon
+neon.ts
+package.json
+package-lock.json

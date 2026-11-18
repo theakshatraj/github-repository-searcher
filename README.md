@@ -10,7 +10,7 @@ A Spring Boot REST API that searches GitHub repositories, stores them in Postgre
 | Live Swagger UI | TODO: add the deployed Swagger URL in Phase 7 |
 | Live health check | TODO: add the deployed health URL in Phase 7 |
 
-> The application has **not been deployed yet**. Phase 7 prepared deployment; every `TODO` above is a placeholder, not a working link. Everything else in this README was verified against a local run, except the Render and Neon steps in Section 13, which are written but not executed.
+> The application has **not been deployed yet**. Phase 7 prepared deployment; every `TODO` above is a placeholder, not a working link. Everything else in this README was verified against a local run, except the Render steps in Section 13, which are written but not executed; the Neon setup was executed and verified.
 
 Locally the three resources are:
 
@@ -304,6 +304,8 @@ Spring Boot does **not** read `.env` automatically. Export the variables in your
 | `PORT` | No | `8080` | HTTP port. Most hosting platforms inject this themselves. |
 | `SPRING_PROFILES_ACTIVE` | No | empty | Set to `prod` for deployments. The prod profile keeps `ddl-auto=validate`, reduces SQL logging and disables health details. |
 
+Neon users can skip the manual conversion: leave `DB_URL` empty and export `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (direct). `NeonEnvironmentPostProcessor` converts both to JDBC, uses the pooled one for request traffic and the direct one for Flyway, keeps only `sslmode` from the query string, and leaves an explicit `DB_URL` untouched. The classes are `src/main/java/com/example/githubsearch/config/NeonEnvironmentPostProcessor.java` and its unit test.
+
 `.env.example` lists every variable with a comment. Copy it to `.env` for your own reference, but export the values yourself because Spring ignores the file.
 
 ## 9. Local setup
@@ -436,7 +438,7 @@ The document is built from `OpenApiConfig` (title, description, version `0.0.1-S
 
 ## 13. Deployment steps used
 
-**Status: prepared, not deployed.** This repository contains the production `Dockerfile` and the exact Render + Neon procedure below, but no Render service and no Neon database exist yet. The live links at the top of this README are still `TODO` placeholders.
+**Status: Neon provisioned, app not deployed.** The Neon project `crimson-cell-36243677` (branch `production`, database `neondb`, region `ap-southeast-1`) is linked in this workspace, and `.env` holds `DATABASE_URL` and `DATABASE_URL_UNPOOLED`. The image was run locally against that database and all checks below passed. No Render service or public URL exists yet, so the live links at the top of this README are still `TODO` placeholders.
 
 Chosen combination: **Render** builds the repository's `Dockerfile` and runs it as a Docker web service; **Neon** hosts PostgreSQL. Render's own free PostgreSQL was deliberately not used because those free databases expire.
 
@@ -504,6 +506,16 @@ Local results are recorded in the Phase 7 completion report. `--rm` deletes the 
 
 ### 13.3 Create the Neon database
 
+The project used here was linked and deployed with:
+
+```bash
+neon init -y --org-id org-purple-pine-68944034 \
+  --project-id crimson-cell-36243677 --branch production --services postgres
+neon deploy
+```
+
+`neon deploy` writes `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_BRANCH`, `NEON_BRANCH_ID` and `NEON_FUNCTION_HOST_SUFFIX` into `.env` (the existing `DB_*` keys are preserved). To reproduce from scratch:
+
 1. Sign in at <https://console.neon.tech> and create a project (any region close to the Render region you will pick).
 2. Neon creates a database and an owner role. Open **Connect** (or **Dashboard → Connection string**) and copy the connection string. It looks like:
 
@@ -530,6 +542,8 @@ Local results are recorded in the Phase 7 completion report. `--rm` deletes the 
    ```
 
    If the copied host contains `-pooler`, that is Neon's pooled endpoint. For a single small instance either endpoint works; the **direct** host (without `-pooler`) is the safer choice because Flyway runs migrations during application startup and direct connections avoid transaction-pooling edge cases. If Neon's string contains extra parameters such as `channel_binding`, keep only `sslmode=require` in `DB_URL`.
+
+   Instead of converting by hand, you can let the app do it: leave `DB_URL` empty and provide `DATABASE_URL` (pooled) plus `DATABASE_URL_UNPOOLED` (direct). `NeonEnvironmentPostProcessor` builds both JDBC URLs, decodes the credentials, drops `channel_binding`, uses the pooled URL for requests and the direct URL for Flyway. `neon deploy` already wrote both variables into `.env`; export them (or pass them to the container) and start the app.
 
 4. Do not create tables. Flyway runs `src/main/resources/db/migration/*.sql` on the first startup of the app.
 
@@ -564,6 +578,8 @@ Keep the password out of Git, screenshots and chat. If it leaks, reset the role 
    | `PORT` | injected by Render; leave it unset |
 
    Mark `DB_PASSWORD` and `GITHUB_TOKEN` as secret. Render exposes environment variables to Docker builds as build args, so never reference them in the `Dockerfile`; this image does not.
+
+   Alternative: instead of `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`, add `DATABASE_URL` (Neon pooled) and `DATABASE_URL_UNPOOLED` (Neon direct). The app converts them at startup and uses the direct URL for Flyway. Keep the three `DB_*` variables if you prefer the explicit form; `DB_URL` wins when both are present.
 
 5. Optional on a small instance, add `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75` so the JVM sizes its heap from the container limit instead of the host's total memory. It is not baked into the image.
 6. Choose **Create Web Service**. Render builds the Dockerfile. The first build downloads Maven dependencies and takes several minutes; later builds reuse cached layers.
@@ -644,6 +660,7 @@ When the checks pass, replace the three `TODO` rows at the top of this README an
 | One `ErrorResponse` shape | A client needs one parser for every failure, and the server has one place (`GlobalExceptionHandler`) that decides status codes. |
 | No retries | Searches are user-initiated and the quota is tight; retrying a 429 or timeout usually makes it worse. A single retry on a 5xx is a reasonable future extension. |
 | Testcontainers instead of H2 | The upsert and functional index are PostgreSQL behaviour; H2 can pass while production fails. |
+| Neon URL adapter, `DB_URL` wins | Neon hands out `postgresql://…`, which JDBC cannot use directly. A small `EnvironmentPostProcessor` converts it, sends runtime traffic to the pooled endpoint and Flyway to the direct one, and steps aside when an explicit `DB_URL` is set. |
 
 ## 15. Known limitations
 
