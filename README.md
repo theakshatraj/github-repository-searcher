@@ -10,7 +10,7 @@ A Spring Boot REST API that searches GitHub repositories, stores them in Postgre
 | Live Swagger UI | TODO: add the deployed Swagger URL in Phase 7 |
 | Live health check | TODO: add the deployed health URL in Phase 7 |
 
-> The application has **not been deployed yet**. Phase 7 owns deployment; every `TODO` above is a placeholder, not a working link. Everything else in this README was verified against a local run.
+> The application has **not been deployed yet**. Phase 7 prepared deployment; every `TODO` above is a placeholder, not a working link. Everything else in this README was verified against a local run, except the Render and Neon steps in Section 13, which are written but not executed.
 
 Locally the three resources are:
 
@@ -436,19 +436,197 @@ The document is built from `OpenApiConfig` (title, description, version `0.0.1-S
 
 ## 13. Deployment steps used
 
-**No deployment has been performed yet.** Phase 7 owns it. There is no public URL, no Dockerfile and no hosted database in this repository at the time of writing, so this section must not be read as a record of a completed deployment.
+**Status: prepared, not deployed.** This repository contains the production `Dockerfile` and the exact Render + Neon procedure below, but no Render service and no Neon database exist yet. The live links at the top of this README are still `TODO` placeholders.
 
-The planned procedure from the blueprint is:
+Chosen combination: **Render** builds the repository's `Dockerfile` and runs it as a Docker web service; **Neon** hosts PostgreSQL. Render's own free PostgreSQL was deliberately not used because those free databases expire.
 
-1. Build the jar with `./mvnw clean verify`.
-2. Package it in a Docker image (multi-stage build: Maven build stage, slim Java 21 runtime, non-root user). The Dockerfile will be added in Phase 7.
-3. Create a managed PostgreSQL database and note its host, port, database name, user and password.
-4. Set `DB_URL` (converted to the `jdbc:postgresql://...` form), `DB_USERNAME`, `DB_PASSWORD`, `SPRING_PROFILES_ACTIVE=prod`, `PORT` and optionally `GITHUB_TOKEN` in the host's secret settings.
-5. Let Flyway create the schema on startup; do not run SQL by hand.
-6. Configure the health check path `/actuator/health`.
-7. Verify: health is UP; `/swagger-ui.html` loads; POST search returns 200; repeating the same POST still returns 200; the filtered GET returns the saved rows; `sort=rating` returns 400; then copy the URLs into the TODO placeholders at the top of this README.
+### 13.1 What the Dockerfile does
 
-Free container hosts may sleep when idle and take roughly a minute to wake; open the URL before a reviewer does.
+`Dockerfile` is a two-stage build:
+
+| Stage | Base image | Job |
+| --- | --- | --- |
+| `build` | `maven:3.9.11-eclipse-temurin-21` | Copies `pom.xml`, runs `mvn dependency:go-offline`, then copies `src` and runs `mvn -DskipTests package`. |
+| runtime | `eclipse-temurin:21-jre-jammy` | Copies only the built jar, runs as the non-root `app` user, exposes 8080 and starts `java -Duser.timezone=UTC -jar /app/app.jar`. |
+
+Both tags are pinned to specific versions (never `latest`) and were verified with `docker manifest inspect`.
+
+Why it is shaped that way:
+
+- **`pom.xml` is copied before `src`.** Docker caches each instruction. As long as the POM does not change, a source-only change reuses the dependency layer instead of downloading Maven Central again.
+- **The runtime stage contains no build tools, source, Maven cache or `.env`.** Only the jar is copied across, so the image cannot leak local files.
+- **Non-root user.** A compromised process gets `app`'s permissions, not root inside the container.
+- **UTC.** `ENV TZ=UTC` sets the container clock and `-Duser.timezone=UTC` sets the JVM zone; Hibernate also binds timestamps as UTC (`spring.jpa.properties.hibernate.jdbc.time_zone=UTC`). Stored instants therefore do not depend on the host's timezone.
+- **`EXPOSE 8080` is documentation only.** Render injects `PORT` and the app reads `server.port=${PORT:8080}`; do not hardcode 8080 in Render.
+- **No secrets are baked in.** Every credential arrives as a runtime environment variable.
+
+`.dockerignore` keeps `.git`, `target`, `.env`, IDE files, logs and docs out of the build context. Excluding `.env` matters: build args and copied files can both end up in image layers.
+
+`SPRING_PROFILES_ACTIVE=prod` activates `application-prod.yml`: `ddl-auto=validate`, `open-in-view=false`, `show-sql=false`, Flyway enabled, only the `health` actuator endpoint exposed (without component details), and INFO logging with Hibernate SQL at WARN. It contains no secrets.
+
+### 13.2 Verify the image locally
+
+Build:
+
+```bash
+docker build -t github-repository-searcher:phase7 .
+```
+
+Run it against the local PostgreSQL container from Section 9. On Docker Desktop, `host.docker.internal` reaches the host, so a database published on host port 5433 is reachable:
+
+```bash
+docker run --rm -p 8083:8080 \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e DB_URL="jdbc:postgresql://host.docker.internal:5433/github_searcher" \
+  -e DB_USERNAME="postgres" \
+  -e DB_PASSWORD="postgres" \
+  github-repository-searcher:phase7
+```
+
+```powershell
+docker run --rm -p 8083:8080 `
+  -e SPRING_PROFILES_ACTIVE=prod `
+  -e DB_URL="jdbc:postgresql://host.docker.internal:5433/github_searcher" `
+  -e DB_USERNAME="postgres" `
+  -e DB_PASSWORD="postgres" `
+  github-repository-searcher:phase7
+```
+
+Then, in another shell:
+
+```bash
+curl -s http://localhost:8083/actuator/health
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8083/swagger-ui.html
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8083/v3/api-docs
+```
+
+Local results are recorded in the Phase 7 completion report. `--rm` deletes the container when it stops; the image stays.
+
+### 13.3 Create the Neon database
+
+1. Sign in at <https://console.neon.tech> and create a project (any region close to the Render region you will pick).
+2. Neon creates a database and an owner role. Open **Connect** (or **Dashboard → Connection string**) and copy the connection string. It looks like:
+
+   ```text
+   postgresql://neondb_owner:<password>@ep-<endpoint>-<region>.aws.neon.tech/neondb?sslmode=require
+   ```
+
+3. Convert it. Spring needs a JDBC URL and separate credentials:
+
+   | Piece of the Neon string | Becomes |
+   | --- | --- |
+   | `postgresql://` | `jdbc:postgresql://` |
+   | `neondb_owner:<password>@` | removed; password goes in `DB_PASSWORD`, role in `DB_USERNAME` |
+   | `ep-...neon.tech` | host, keep as-is |
+   | `/neondb` | database name, keep as-is |
+   | `?sslmode=require` | keep; Neon requires TLS |
+
+   Result:
+
+   ```text
+   DB_URL=jdbc:postgresql://ep-<endpoint>-<region>.aws.neon.tech/neondb?sslmode=require
+   DB_USERNAME=neondb_owner
+   DB_PASSWORD=<the password from the string>
+   ```
+
+   If the copied host contains `-pooler`, that is Neon's pooled endpoint. For a single small instance either endpoint works; the **direct** host (without `-pooler`) is the safer choice because Flyway runs migrations during application startup and direct connections avoid transaction-pooling edge cases. If Neon's string contains extra parameters such as `channel_binding`, keep only `sslmode=require` in `DB_URL`.
+
+4. Do not create tables. Flyway runs `src/main/resources/db/migration/*.sql` on the first startup of the app.
+
+Keep the password out of Git, screenshots and chat. If it leaks, reset the role password in Neon and update `DB_PASSWORD` in Render.
+
+### 13.4 Create the Render web service
+
+1. Push this repository (including `Dockerfile` and `.dockerignore`) to GitHub.
+2. In <https://dashboard.render.com> choose **New → Web Service** and connect the repository.
+3. Use these settings:
+
+   | Setting | Value |
+   | --- | --- |
+   | Language | **Docker** |
+   | Branch | your default branch, for example `main` |
+   | Region | closest to you / to Neon |
+   | Root Directory | repository root (leave empty) |
+   | Dockerfile Path | `./Dockerfile` |
+   | Docker Command | leave empty; the image's `ENTRYPOINT` starts the app |
+   | Health Check Path | `/actuator/health` |
+   | Instance Type | choose the free instance if your account offers it |
+
+4. Add the environment variables under **Environment**. Render injects `PORT` itself, so **do not set `PORT=8080`**; if you set it explicitly, it must match Render's port (usually `10000`).
+
+   | Variable | Value |
+   | --- | --- |
+   | `DB_URL` | `jdbc:postgresql://<neon-host>/<database>?sslmode=require` |
+   | `DB_USERNAME` | Neon role, for example `neondb_owner` |
+   | `DB_PASSWORD` | Neon password |
+   | `GITHUB_TOKEN` | optional; empty is allowed. A token with no scopes raises GitHub's rate limit. |
+   | `SPRING_PROFILES_ACTIVE` | `prod` |
+   | `PORT` | injected by Render; leave it unset |
+
+   Mark `DB_PASSWORD` and `GITHUB_TOKEN` as secret. Render exposes environment variables to Docker builds as build args, so never reference them in the `Dockerfile`; this image does not.
+
+5. Optional on a small instance, add `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75` so the JVM sizes its heap from the container limit instead of the host's total memory. It is not baked into the image.
+6. Choose **Create Web Service**. Render builds the Dockerfile. The first build downloads Maven dependencies and takes several minutes; later builds reuse cached layers.
+7. Watch the logs. Success looks like Flyway applying the migration, Tomcat starting on Render's `PORT`, and `Started GithubRepositorySearcherApplication`. A Flyway or `password authentication failed` error means the database variables are wrong; fix them and redeploy.
+
+Render gives the service a URL like `https://<service-name>.onrender.com`. Free instances may sleep when idle and take about a minute to wake.
+
+### 13.5 Verify the deployment
+
+Run all six checks from Blueprint Section 14 against the Render URL.
+
+1. Health is UP:
+
+   ```bash
+   curl -s https://<service-name>.onrender.com/actuator/health
+   ```
+
+   ```json
+   {"status":"UP"}
+   ```
+
+2. Swagger UI loads in a browser: `https://<service-name>.onrender.com/swagger-ui.html` (it redirects to `/swagger-ui/index.html`). Raw spec: `https://<service-name>.onrender.com/v3/api-docs`.
+
+3. Search stores repositories:
+
+   ```bash
+   curl -s -X POST https://<service-name>.onrender.com/api/github/search \
+     -H "Content-Type: application/json" \
+     -d '{"query":"spring boot","language":"Java","sort":"stars","page":1,"perPage":1}'
+   ```
+
+   Expect `200` and a `repositories` array.
+
+4. Repeat the same POST. It must still return `200`; the upsert updates the existing row instead of failing on the primary key.
+
+5. Read the stored rows without calling GitHub:
+
+   ```bash
+   curl -s "https://<service-name>.onrender.com/api/github/repositories?language=Java&minStars=100&sort=stars"
+   ```
+
+6. An invalid sort returns `400` in the standard error shape:
+
+   ```bash
+   curl -s "https://<service-name>.onrender.com/api/github/repositories?sort=rating"
+   ```
+
+PowerShell users: `curl.exe` can strip quotes from inline JSON. Put the body in `body.json` and use `--data-binary "@body.json"`.
+
+When the checks pass, replace the three `TODO` rows at the top of this README and the deployed Swagger line in Section 12 with the real URLs. Until then they remain placeholders.
+
+### 13.6 Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| Container exits immediately | Missing/incorrect `DB_URL`, `DB_USERNAME` or `DB_PASSWORD`; read the Render logs. |
+| `password authentication failed` | Wrong Neon password, or the URL points at a different role/database. |
+| `SSL connection is required` / TLS error | `?sslmode=require` is missing from `DB_URL`. |
+| Flyway cannot connect | `DB_URL` still starts with `postgresql://` or contains the password; it must start with `jdbc:postgresql://` and contain only host, port, database and `sslmode`. |
+| `502` on search with a token configured | The GitHub token is invalid or expired; clear `GITHUB_TOKEN` to test anonymously. |
+| `429` | GitHub rate limit; wait, or configure a valid token. |
+| Health check fails but the app logs startup | `PORT` was hardcoded to 8080 instead of letting Render inject it. |
+| First request after idle is slow | Free instances sleep; open the health URL a minute before a reviewer does. |
 
 ## 14. Design decisions
 

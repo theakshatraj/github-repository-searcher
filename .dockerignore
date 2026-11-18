@@ -1,0 +1,29 @@
+# Build output and local tooling must not enter the build context.
+.git
+.github
+.gitignore
+target
+mvnw
+mvnw.cmd
+
+# Never send local secrets to the Docker daemon.
+.env
+.env.*
+!.env.example
+
+# IDE and OS files.
+.idea
+.vscode
+*.iml
+*.ipr
+*.iws
+.settings
+.classpath
+.project
+.DS_Store
+Thumbs.db
+
+# Logs and documentation are not needed to build the jar.
+*.log
+docs
+README.md
