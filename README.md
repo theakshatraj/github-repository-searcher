@@ -635,6 +635,7 @@ When the checks pass, replace the three `TODO` rows at the top of this README an
 
 | Symptom | Likely cause |
 | --- | --- |
+| `DATABASE_URL_UNPOOLED is not a valid URL` (or `DATABASE_URL`) | The value in the dashboard is not one bare `postgresql://…` string. Common causes: the whole `.env` line including `DATABASE_URL_UNPOOLED=`, surrounding quotes, a trailing newline or space, a space added by the dashboard, or the docs' `<password>` placeholder. The app tolerates quotes, a `KEY=` prefix and surrounding whitespace, and rejects `<`/`>` with “paste the real connection string”. Paste the URL from Neon Console → Connect, once, with no line break. |
 | Container exits immediately | Missing/incorrect `DB_URL`, `DB_USERNAME` or `DB_PASSWORD`; read the Render logs. |
 | `password authentication failed` | Wrong Neon password, or the URL points at a different role/database. |
 | `SSL connection is required` / TLS error | `?sslmode=require` is missing from `DB_URL`. |

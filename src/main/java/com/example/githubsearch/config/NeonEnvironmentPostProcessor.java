@@ -7,11 +7,12 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.util.StringUtils;
 
-import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Adapts Neon's {@code postgresql://} connection strings to the JDBC properties Spring Boot expects.
@@ -40,6 +41,16 @@ public class NeonEnvironmentPostProcessor implements EnvironmentPostProcessor, O
 
     private static final int POSTGRESQL_DEFAULT_PORT = 5432;
 
+    /**
+     * Deliberately more forgiving than {@link java.net.URI}: a pasted password may contain an unescaped
+     * {@code @}, {@code :}, {@code /}, {@code ?} or {@code #}, all of which make {@code URI.create} reject
+     * the whole string. The greedy user-info group stops at the last {@code @}, which is the one before the
+     * host.
+     */
+    private static final Pattern POSTGRES_URL = Pattern.compile(
+            "^(postgres(?:ql)?)://(.*)@([^/@?#]+?)(?::(\\d+))?(?:/([^?#]*))?(?:\\?(.*))?$",
+            Pattern.CASE_INSENSITIVE);
+
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         if (StringUtils.hasText(environment.getProperty(DB_URL))) {
@@ -52,7 +63,9 @@ public class NeonEnvironmentPostProcessor implements EnvironmentPostProcessor, O
             return;
         }
 
-        Connection runtime = parse(StringUtils.hasText(pooled) ? pooled : direct, DATABASE_URL);
+        String runtimeValue = StringUtils.hasText(pooled) ? pooled : direct;
+        String runtimeVariable = StringUtils.hasText(pooled) ? DATABASE_URL : DATABASE_URL_UNPOOLED;
+        Connection runtime = parse(runtimeValue, runtimeVariable);
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("spring.datasource.url", runtime.jdbcUrl());
         properties.put("spring.datasource.username", runtime.username());
@@ -75,49 +88,78 @@ public class NeonEnvironmentPostProcessor implements EnvironmentPostProcessor, O
     }
 
     private static Connection parse(String value, String variable) {
-        String normalized = unquote(value.trim());
-        URI uri;
-        try {
-            uri = URI.create(normalized);
-        } catch (IllegalArgumentException exception) {
+        String normalized = normalize(value, variable);
+        if (normalized.indexOf('<') >= 0 || normalized.indexOf('>') >= 0) {
+            throw new IllegalStateException(
+                    variable + " still contains < or >; paste the real connection string from Neon");
+        }
+        if (!normalized.regionMatches(true, 0, "postgres://", 0, 11)
+                && !normalized.regionMatches(true, 0, "postgresql://", 0, 13)) {
+            throw new IllegalStateException(variable + " must start with postgresql://");
+        }
+
+        Matcher matcher = POSTGRES_URL.matcher(normalized);
+        if (!matcher.matches()) {
             // Never include the value: it contains the password.
-            throw new IllegalStateException(variable + " is not a valid URL");
+            throw new IllegalStateException(variable + " is not a valid PostgreSQL URL"
+                    + " (length=" + normalized.length()
+                    + ", containsQuotes=" + (normalized.indexOf('"') >= 0 || normalized.indexOf('\'') >= 0)
+                    + "); expected postgresql://user:password@host:5432/database");
         }
 
-        String scheme = uri.getScheme();
-        if (!"postgres".equalsIgnoreCase(scheme) && !"postgresql".equalsIgnoreCase(scheme)) {
-            throw new IllegalStateException(variable + " must use the postgres or postgresql scheme");
-        }
-
-        String userInfo = uri.getUserInfo();
-        int separator = userInfo == null ? -1 : userInfo.indexOf(':');
+        String userInfo = matcher.group(2);
+        int separator = userInfo.indexOf(':');
         if (separator < 1) {
             throw new IllegalStateException(variable + " must contain a username and password");
         }
 
-        String host = uri.getHost();
+        String host = matcher.group(3);
         if (!StringUtils.hasText(host)) {
             throw new IllegalStateException(variable + " must contain a host");
         }
-        if (host.indexOf(':') >= 0) {
+        if (host.indexOf(':') >= 0 && !(host.startsWith("[") && host.endsWith("]"))) {
             host = "[" + host + "]";
         }
 
-        String database = uri.getPath() == null ? "" : uri.getPath().replaceFirst("^/", "");
+        String database = matcher.group(5);
         if (!StringUtils.hasText(database)) {
             throw new IllegalStateException(variable + " must contain a database name");
         }
 
-        int port = uri.getPort() == -1 ? POSTGRESQL_DEFAULT_PORT : uri.getPort();
-        String sslMode = queryParameter(uri.getRawQuery(), "sslmode");
+        int port = POSTGRESQL_DEFAULT_PORT;
+        if (matcher.group(4) != null) {
+            try {
+                port = Integer.parseInt(matcher.group(4));
+            } catch (NumberFormatException exception) {
+                throw new IllegalStateException(variable + " contains an invalid port");
+            }
+            if (port < 1 || port > 65535) {
+                throw new IllegalStateException(variable + " contains an invalid port");
+            }
+        }
 
+        String sslMode = queryParameter(matcher.group(6), "sslmode");
         String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + "/" + database
                 + "?sslmode=" + (StringUtils.hasText(sslMode) ? sslMode : "require");
 
         return new Connection(
                 jdbcUrl,
-                decode(userInfo.substring(0, separator)),
-                decode(userInfo.substring(separator + 1)));
+                decode(userInfo.substring(0, separator), variable),
+                decode(userInfo.substring(separator + 1), variable));
+    }
+
+    /**
+     * Accepts what people actually paste into a hosting dashboard: a whole {@code .env} line, quotes,
+     * escaped quotes, or a value split across lines. All of these are still the same URL, so normalizing
+     * them is safer than making the operator edit the secret by hand.
+     */
+    private static String normalize(String raw, String variable) {
+        String value = raw.trim();
+        value = value.replaceFirst("(?i)^" + Pattern.quote(variable) + "\\s*=\\s*", "");
+        value = value.replace("\\\"", "\"");
+        value = unquote(value.trim());
+        value = value.replaceAll("\\s+", "");
+        return value;
     }
 
     /**
@@ -139,8 +181,12 @@ public class NeonEnvironmentPostProcessor implements EnvironmentPostProcessor, O
      * Percent-decodes a URI component without treating {@code +} as a space. Passwords may legitimately
      * contain a plus sign, and URLDecoder's form mode would corrupt it.
      */
-    private static String decode(String value) {
-        return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
+    private static String decode(String value, String variable) {
+        try {
+            return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException(variable + " contains an invalid percent-escape");
+        }
     }
 
     private static String queryParameter(String rawQuery, String name) {

@@ -90,6 +90,43 @@ class NeonEnvironmentPostProcessorTest {
     }
 
     @Test
+    void acceptsAWholeEnvLineWithKeyPrefixAndQuotes() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("DATABASE_URL_UNPOOLED",
+                        "DATABASE_URL_UNPOOLED=\"postgresql://neondb_owner:secret@ep.example.neon.tech"
+                                + "/neondb?sslmode=require\"");
+
+        processor.postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:postgresql://ep.example.neon.tech:5432/neondb?sslmode=require");
+    }
+
+    @Test
+    void acceptsUnescapedSpecialCharactersInThePassword() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("DATABASE_URL",
+                        "postgresql://neondb_owner:p@ss:word@ep.example.neon.tech:5432/neondb");
+
+        processor.postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty("spring.datasource.password")).isEqualTo("p@ss:word");
+        assertThat(environment.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:postgresql://ep.example.neon.tech:5432/neondb?sslmode=require");
+    }
+
+    @Test
+    void rejectsAPlaceholderWithAnActionableMessage() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("DATABASE_URL", "postgresql://user:<password>@host/database");
+
+        assertThatThrownBy(() -> processor.postProcessEnvironment(environment, new SpringApplication()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("real connection string")
+                .hasMessageNotContaining("<password>");
+    }
+
+    @Test
     void rejectsANonPostgresUrlWithANamedVariable() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("DATABASE_URL", "mysql://user:secret@host/database");
@@ -108,7 +145,7 @@ class NeonEnvironmentPostProcessorTest {
 
         assertThatThrownBy(() -> processor.postProcessEnvironment(environment, new SpringApplication()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("DATABASE_URL is not a valid URL")
+                .hasMessageContaining("must start with postgresql://")
                 .hasMessageNotContaining("secret");
     }
 }
